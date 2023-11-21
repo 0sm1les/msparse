@@ -2,45 +2,17 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
-type Nmaprun struct {
-	XMLName          xml.Name `xml:"nmaprun"`
-	Text             string   `xml:",chardata"`
-	Scanner          string   `xml:"scanner,attr"`
-	Start            string   `xml:"start,attr"`
-	Version          string   `xml:"version,attr"`
-	Xmloutputversion string   `xml:"xmloutputversion,attr"`
-	Scaninfo         struct {
-		Text     string `xml:",chardata"`
-		Type     string `xml:"type,attr"`
-		Protocol string `xml:"protocol,attr"`
-	} `xml:"scaninfo"`
-	Host     []Host `xml:"host"`
-	Runstats struct {
-		Text     string `xml:",chardata"`
-		Finished struct {
-			Text    string `xml:",chardata"`
-			Time    string `xml:"time,attr"`
-			Timestr string `xml:"timestr,attr"`
-			Elapsed string `xml:"elapsed,attr"`
-		} `xml:"finished"`
-		Hosts struct {
-			Text  string `xml:",chardata"`
-			Up    string `xml:"up,attr"`
-			Down  string `xml:"down,attr"`
-			Total string `xml:"total,attr"`
-		} `xml:"hosts"`
-	} `xml:"runstats"`
-}
-
-type Host struct {
+type XML struct {
 	Text    string `xml:",chardata"`
 	Endtime string `xml:"endtime,attr"`
 	Address struct {
@@ -62,6 +34,18 @@ type Host struct {
 			} `xml:"state"`
 		} `xml:"port"`
 	} `xml:"ports"`
+}
+
+type JSON struct {
+	IP        string `json:"ip"`
+	Timestamp string `json:"timestamp"`
+	Ports     []struct {
+		Port   int    `json:"port"`
+		Proto  string `json:"proto"`
+		Status string `json:"status"`
+		Reason string `json:"reason"`
+		TTL    int    `json:"ttl"`
+	} `json:"ports"`
 }
 
 func main() {
@@ -99,7 +83,7 @@ func main() {
 			}
 			ip := values[3]
 			port := values[2]
-			_, err = writer.WriteString(ip + ":" + port + "\n")
+			_, err = writer.WriteString(fmt.Sprintf("%s:%s\n", ip, port))
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -107,7 +91,7 @@ func main() {
 	} else if os.Args[1] == "xml" {
 		d := xml.NewDecoder(infile)
 		for {
-			var host Host
+			var host XML
 			t, err := d.Token()
 			if err != nil {
 				if err == io.EOF {
@@ -124,7 +108,7 @@ func main() {
 					if err != nil {
 						log.Fatal(err)
 					}
-					_, err = writer.WriteString(host.Address.Addr + ":" + host.Ports.Port.Portid)
+					_, err = writer.WriteString(fmt.Sprintf("%s:%s\n", host.Address.Addr, host.Ports.Port.Portid))
 					if err != nil {
 						log.Fatal(err)
 					}
@@ -132,10 +116,39 @@ func main() {
 			}
 		}
 	} else if os.Args[1] == "json" {
+		d := json.NewDecoder(infile)
+
+		// read open bracket
+		_, err := d.Token()
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		for d.More() {
+			var host JSON
+			err = d.Decode(&host)
+			if err != nil {
+				log.Fatal(err)
+			}
+			_, err = writer.WriteString(fmt.Sprintf("%s:%d\n", host.IP, host.Ports[0].Port))
+			if err != nil {
+				log.Fatal(err)
+			}
+
+		}
+
+		// read closing bracket
+		_, err = d.Token()
+		if err != nil {
+			log.Fatal(err)
+		}
 
 	} else {
 		fmt.Printf("unknown input file type: '%s'\n", os.Args[1])
 		fmt.Println("available input types: xml, json, list")
 	}
 	writer.Flush()
+	filepath, _ := filepath.Abs(os.Args[2])
+	fmt.Println("Done!")
+	fmt.Printf("Wrote to: %s\n", filepath)
 }
